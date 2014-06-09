@@ -21,6 +21,7 @@
 #include "GUIIncludes.h"
 #include "addons/Skin.h"
 #include "GUIInfoManager.h"
+#include "GUIInfoTypes.h"
 #include "utils/log.h"
 #include "utils/XBMCTinyXML.h"
 #include "utils/XMLUtils.h"
@@ -264,11 +265,15 @@ void CGUIIncludes::ResolveIncludesForNode(TiXmlElement *node, std::map<INFO::Inf
     { // found the tag(s) to include - let's replace it
       const TiXmlElement &element = (*it).second;
       const TiXmlElement *tag = element.FirstChildElement();
+      // combine passed include parameters with their default values into a single list
+      map<string, string> params = GetParameters(include, &element);
       while (tag)
       {
         // we insert before the <include> element to keep the correct
         // order (we render in the order given in the xml file)
-        node->InsertBeforeChild(include, *tag);
+        TiXmlElement *insertedTag = static_cast<TiXmlElement*>(node->InsertBeforeChild(include, *tag));
+        // after insertion we resolve parameters even if parameter list is empty (to remove param references)
+        ResolveParametersForNode(insertedTag, params);
         tag = tag->NextSiblingElement();
       }
       // remove the <include>tagName</include> element
@@ -293,6 +298,95 @@ void CGUIIncludes::ResolveIncludesForNode(TiXmlElement *node, std::map<INFO::Inf
   // also do the value
   if (node->FirstChild() && node->FirstChild()->Type() == TiXmlNode::TINYXML_TEXT && m_constantNodes.count(node->ValueStr()))
     node->FirstChild()->SetValue(ResolveConstant(node->FirstChild()->ValueStr()));
+}
+
+map<string, string> CGUIIncludes::GetParameters(const TiXmlElement *includeCall, const TiXmlElement *includeDef) const
+{
+  static const char paramNamespacePrefix[] = "param:";
+  map<string, string> params;
+  const TiXmlAttribute *attribute;
+  // add actual parameters from include call tag (these override defaults)
+  // <include file="MyControls.xml" param:posx="225" param:posy="150">MyControl1</include>
+  if (includeCall)
+  {
+    attribute = includeCall->FirstAttribute();
+    while (attribute)
+    {
+      if (StringUtils::StartsWith(attribute->Name(), paramNamespacePrefix))
+      {
+        string paramName(attribute->Name() + sizeof(paramNamespacePrefix) - 1);
+        params[paramName] = attribute->ValueStr();
+      }
+      attribute = attribute->Next();
+    }
+  }
+  // add default parameters from include definition tag
+  // <include name="MyControl1" param:posx="100" param:posy="100" param:TextColor="white">...</include>
+  if (includeDef)
+  {
+    attribute = includeDef->FirstAttribute();
+    while (attribute)
+    {
+      if (StringUtils::StartsWith(attribute->Name(), paramNamespacePrefix))
+      {
+        string paramName(attribute->Name() + sizeof(paramNamespacePrefix) - 1);
+        if (params.find(paramName) == params.end())
+          params[paramName] = attribute->ValueStr();
+      }
+      attribute = attribute->Next();
+    }
+  }
+  return params;
+}
+
+void CGUIIncludes::ResolveParametersForNode(TiXmlElement *node, const map<string, string> &params) const
+{
+  if (!node)
+    return;
+  string newValue;
+  // run through this element's attributes, resolving any parameters
+  TiXmlAttribute *attribute = node->FirstAttribute();
+  while (attribute)
+  {
+    if (ResolveParameters(attribute->ValueStr(), newValue, params))
+      attribute->SetValue(newValue);
+    attribute = attribute->Next();
+  }
+  // run through this element's value and children, resolving any parameters
+  if (TiXmlNode *child = node->FirstChild())
+  {
+    if (child->Type() == TiXmlNode::TINYXML_TEXT)
+    {
+      if (ResolveParameters(child->ValueStr(), newValue, params))
+        child->SetValue(newValue);
+    }
+    else if (child->Type() == TiXmlNode::TINYXML_ELEMENT)
+    {
+      do
+      {
+        ResolveParametersForNode(static_cast<TiXmlElement*>(child), params);
+        child = child->NextSiblingElement();
+      }
+      while (child);
+    }
+  }
+}
+
+class ParamReplacer
+{
+  const map<string, string> &m_params;
+public:
+  ParamReplacer(const map<string, string> &params) : m_params(params) {}
+  string operator()(const string &paramName) const
+  {
+    map<string, string>::const_iterator it = m_params.find(paramName);
+    return it != m_params.end() ? it->second : StringUtils::Empty;
+  }
+};
+
+bool CGUIIncludes::ResolveParameters(const string &strInput, string &strOutput, const map<string, string> &params) const
+{
+  return CGUIInfoLabel::ReplaceDollarString(strInput, strOutput, "PARAM", ParamReplacer(params));
 }
 
 CStdString CGUIIncludes::ResolveConstant(const CStdString &constant) const

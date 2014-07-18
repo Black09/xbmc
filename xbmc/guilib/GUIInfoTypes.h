@@ -31,6 +31,7 @@
 #include <string>
 #include <vector>
 #include <stdint.h>
+#include <boost/function.hpp>
 #include "interfaces/info/InfoBool.h"
 
 class CGUIListItem;
@@ -116,6 +117,10 @@ public:
    \return text with any localized strings filled in.
    */
   static std::string ReplaceAddonStrings(const std::string &label);
+
+  typedef boost::function<std::string(const std::string&)> StringReplacerFunc;
+  static bool ReplaceDollarString(const std::string &strInput, std::string &strOutput, const std::string &str, const StringReplacerFunc &func);
+  static bool ReplaceDollarString(std::string &work, const std::string &str, const StringReplacerFunc &func);
 
 private:
   void Parse(const std::string &label, int context);

@@ -348,16 +348,30 @@ void CGUIIncludes::ResolveParametersForNode(TiXmlElement *node, const map<string
   TiXmlAttribute *attribute = node->FirstAttribute();
   while (attribute)
   {
-    if (ResolveParameters(attribute->ValueStr(), newValue, params))
-      attribute->SetValue(newValue);
-    attribute = attribute->Next();
+    RESOLVE_PARAMS_RESULT result = ResolveParameters(attribute->ValueStr(), newValue, params);
+    if (result == SINGLE_UNDEFINED_PARAM_RESOLVED && strcmp(node->Value(), "include") == 0)
+    {
+      // special case: passing param:name="$PARAM[undefinedParam]" to the nested include
+      // this usually happens when trying to forward a missing parameter from the enclosing include to the nested include
+      // problem: since 'undefinedParam' is not defined, it expands to param:name="" and overrides any default value set for param:name in the nested include
+      // to prevent this, we'll completely remove this parameter from the nested include call so that the default value can be correctly picked up later
+      const char *name = attribute->Name();
+      attribute = attribute->Next();
+      node->RemoveAttribute(name);
+    }
+    else
+    {
+      if (result != NO_PARAMS_FOUND)
+        attribute->SetValue(newValue);
+      attribute = attribute->Next();
+    }
   }
   // run through this element's value and children, resolving any parameters
   if (TiXmlNode *child = node->FirstChild())
   {
     if (child->Type() == TiXmlNode::TINYXML_TEXT)
     {
-      if (ResolveParameters(child->ValueStr(), newValue, params))
+      if (ResolveParameters(child->ValueStr(), newValue, params) != NO_PARAMS_FOUND)
         child->SetValue(newValue);
     }
     else if (child->Type() == TiXmlNode::TINYXML_ELEMENT)
@@ -375,18 +389,36 @@ void CGUIIncludes::ResolveParametersForNode(TiXmlElement *node, const map<string
 class ParamReplacer
 {
   const map<string, string> &m_params;
+  // keep some stats so that we know exactly what's been resolved
+  int m_numTotalParams;
+  int m_numUndefinedParams;
 public:
-  ParamReplacer(const map<string, string> &params) : m_params(params) {}
-  string operator()(const string &paramName) const
+  ParamReplacer(const map<string, string> &params) : m_params(params), m_numTotalParams(0), m_numUndefinedParams(0) {}
+  int getNumTotalParams() const { return m_numTotalParams; }
+  int getNumDefinedParams() const { return m_numTotalParams - m_numUndefinedParams; }
+  int getNumUndefinedParams() const { return m_numUndefinedParams; }
+  string operator()(const string &paramName)
   {
+    m_numTotalParams++;
     map<string, string>::const_iterator it = m_params.find(paramName);
-    return it != m_params.end() ? it->second : StringUtils::Empty;
+    if (it != m_params.end())
+      return it->second;
+    else
+    {
+      m_numUndefinedParams++;
+      return StringUtils::Empty;
+    }
   }
 };
 
-bool CGUIIncludes::ResolveParameters(const string &strInput, string &strOutput, const map<string, string> &params) const
+CGUIIncludes::RESOLVE_PARAMS_RESULT CGUIIncludes::ResolveParameters(const string &strInput, string &strOutput, const map<string, string> &params) const
 {
-  return CGUIInfoLabel::ReplaceDollarString(strInput, strOutput, "PARAM", ParamReplacer(params));
+  ParamReplacer paramReplacer(params);
+  if (CGUIInfoLabel::ReplaceDollarString(strInput, strOutput, "PARAM", boost::ref(paramReplacer)))
+    // detect special input values of the form "$PARAM[undefinedParam]" (with no extra characters around)
+    return paramReplacer.getNumUndefinedParams() == 1 && paramReplacer.getNumTotalParams() == 1 && strOutput.empty() ? SINGLE_UNDEFINED_PARAM_RESOLVED : PARAMS_RESOLVED;
+  else
+    return NO_PARAMS_FOUND;
 }
 
 CStdString CGUIIncludes::ResolveConstant(const CStdString &constant) const

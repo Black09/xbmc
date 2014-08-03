@@ -127,15 +127,18 @@ public:
   int RemoveThreadMessageByMessageIds(int *pMessageIDList);
   void AddMsgTarget( IMsgTargetCallback* pMsgTarget );
   int GetActiveWindow() const;
-  int GetFocusedWindow() const;
+  int GetFocusedWindow(bool ignoreClosing = true) const;
   bool HasModalDialog() const;
   bool HasDialogOnScreen() const;
   bool IsWindowActive(int id, bool ignoreClosing = true) const;
   bool IsWindowVisible(int id) const;
   bool IsWindowTopMost(int id) const;
+  bool HasWindowFocus(int id, bool ignoreClosing = true) const;
   bool IsWindowActive(const CStdString &xmlFile, bool ignoreClosing = true) const;
   bool IsWindowVisible(const CStdString &xmlFile) const;
   bool IsWindowTopMost(const CStdString &xmlFile) const;
+  bool HasWindowFocus(const CStdString &xmlFile, bool ignoreClosing = true) const;
+
   bool IsOverlayAllowed() const;
   void ShowOverlay(CGUIWindow::OVERLAY_STATE state);
   void GetActiveModelessWindows(std::vector<int> &ids);

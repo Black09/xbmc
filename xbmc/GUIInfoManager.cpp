@@ -614,7 +614,9 @@ const infomap window_bools[] =   {{ "ismedia",          WINDOW_IS_MEDIA },
                                   { "istopmost",        WINDOW_IS_TOPMOST },
                                   { "isvisible",        WINDOW_IS_VISIBLE },
                                   { "previous",         WINDOW_PREVIOUS },
-                                  { "next",             WINDOW_NEXT }};
+                                  { "next",             WINDOW_NEXT },
+                                  { "hasfocus",         WINDOW_HAS_FOCUS },
+                                  { "istopmostfocused", WINDOW_IS_TOPMOST_FOCUSED }};
 
 const infomap control_labels[] = {{ "hasfocus",         CONTROL_HAS_FOCUS },
                                   { "isvisible",        CONTROL_IS_VISIBLE },
@@ -2877,6 +2879,18 @@ bool CGUIInfoManager::GetMultiInfoBool(const GUIInfo &info, int contextWindow, c
           bReturn = g_windowManager.IsWindowActive(info.GetData1());
         else
           bReturn = g_windowManager.IsWindowActive(m_stringParameters[info.GetData2()]);
+        break;
+      case WINDOW_HAS_FOCUS:
+        if (info.GetData1())
+          bReturn = g_windowManager.HasWindowFocus(info.GetData1());
+        else
+          bReturn = g_windowManager.HasWindowFocus(m_stringParameters[info.GetData2()]);
+        break;
+      case WINDOW_IS_TOPMOST_FOCUSED:
+        if (info.GetData1())
+          bReturn = g_windowManager.HasWindowFocus(info.GetData1(), false);
+        else
+          bReturn = g_windowManager.HasWindowFocus(m_stringParameters[info.GetData2()], false);
         break;
       case SYSTEM_HAS_ALARM:
         bReturn = g_alarmClock.HasAlarm(m_stringParameters[info.GetData1()]);

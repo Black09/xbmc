@@ -866,9 +866,9 @@ int CGUIWindowManager::GetActiveWindow() const
 }
 
 // same as GetActiveWindow() except it first grabs dialogs
-int CGUIWindowManager::GetFocusedWindow() const
+int CGUIWindowManager::GetFocusedWindow(bool ignoreClosing /* = true */) const
 {
-  int dialog = GetTopMostModalDialogID(true);
+  int dialog = GetTopMostModalDialogID(ignoreClosing);
   if (dialog != WINDOW_INVALID)
     return dialog;
 
@@ -914,6 +914,26 @@ bool CGUIWindowManager::IsWindowVisible(int id) const
 bool CGUIWindowManager::IsWindowVisible(const CStdString &xmlFile) const
 {
   return IsWindowActive(xmlFile, false);
+}
+
+bool CGUIWindowManager::HasWindowFocus(int id, bool ignoreClosing /* = true */) const
+{
+  // mask out multiple instances of the same window
+  id &= WINDOW_ID_MASK;
+  if ((GetFocusedWindow(ignoreClosing) & WINDOW_ID_MASK) == id)
+    return true;
+
+  return false;
+}
+
+bool CGUIWindowManager::HasWindowFocus(const CStdString &xmlFile, bool ignoreClosing /* = true */) const
+{
+  CSingleLock lock(g_graphicsContext);
+  CGUIWindow *window = GetWindow(GetFocusedWindow(ignoreClosing));
+  if (window && URIUtils::GetFileName(window->GetProperty("xmlfile").asString()).Equals(xmlFile))
+    return true;
+
+  return false;
 }
 
 void CGUIWindowManager::LoadNotOnDemandWindows()

@@ -53,6 +53,10 @@ public:
 
 private:
   void ResolveIncludesForNode(TiXmlElement *node, std::map<INFO::InfoPtr, bool>* xmlIncludeConditions = NULL);
+  std::map<std::string, std::string> GetParameters(const TiXmlElement *includeCall, const TiXmlElement *includeDef) const;
+  void ResolveParametersForNode(TiXmlElement *node, const std::map<std::string, std::string> &params) const;
+  enum RESOLVE_PARAMS_RESULT { NO_PARAMS_FOUND, PARAMS_RESOLVED, SINGLE_UNDEFINED_PARAM_RESOLVED };
+  RESOLVE_PARAMS_RESULT ResolveParameters(const std::string &strInput, std::string &strOutput, const std::map<std::string, std::string> &params) const;
   CStdString ResolveConstant(const CStdString &constant) const;
   bool HasIncludeFile(const CStdString &includeFile) const;
   std::map<CStdString, TiXmlElement> m_includes;

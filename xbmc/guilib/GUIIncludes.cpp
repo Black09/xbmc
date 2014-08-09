@@ -185,27 +185,48 @@ bool CGUIIncludes::HasIncludeFile(const CStdString &file) const
   return false;
 }
 
-void CGUIIncludes::ResolveIncludes(TiXmlElement *node, std::map<INFO::InfoPtr, bool>* xmlIncludeConditions /* = NULL */)
+void CGUIIncludes::ResolveIncludes(TiXmlElement *node,
+                                   std::map<INFO::InfoPtr, bool>* xmlIncludeConditions /* = NULL */)
+{
+  /*
+   * We are starting with an empty params list. While
+   * moving down the hierarchy, the params list will
+   * be filled with all (auto-forwarded) params which
+   * are valid on the current hierarchy level. Thus we
+   * are not passing a reference so the params map
+   * doesn't get modified along the way and we can make
+   * sure that it doesn't hold any passed params or 
+   * defaults from sibling includes and their children
+   */
+  map<string, string> params;
+  ResolveIncludes(node, xmlIncludeConditions, params);
+}
+
+void CGUIIncludes::ResolveIncludes(TiXmlElement *node,
+                                   std::map<INFO::InfoPtr, bool>* xmlIncludeConditions,
+                                   std::map<std::string, std::string> params)
 {
   if (!node)
     return;
-  ResolveIncludesForNode(node, xmlIncludeConditions);
+
+  ResolveDefaultsForNode(node);
 
   TiXmlElement *child = node->FirstChildElement();
   while (child)
   {
-    ResolveIncludes(child, xmlIncludeConditions);
+    if (child->ValueStr() == "include")
+      ResolveIncludeForNode(node, child, xmlIncludeConditions, params);
+    else
+      ResolveIncludes(child, xmlIncludeConditions, params);
+
     child = child->NextSiblingElement();
   }
+
+  ResolveConstantsForNode(node);
 }
 
-void CGUIIncludes::ResolveIncludesForNode(TiXmlElement *node, std::map<INFO::InfoPtr, bool>* xmlIncludeConditions /* = NULL */)
+void CGUIIncludes::ResolveDefaultsForNode(TiXmlElement *node)
 {
-  // we have a node, find any <include file="fileName">tagName</include> tags and replace
-  // recursively with their real includes
-  if (!node) return;
-
-  // First add the defaults if this is for a control
   CStdString type;
   if (node->ValueStr() == "control")
   {
@@ -234,59 +255,81 @@ void CGUIIncludes::ResolveIncludesForNode(TiXmlElement *node, std::map<INFO::Inf
       }
     }
   }
+}
 
-  TiXmlElement *include = node->FirstChildElement("include");
-  while (include && include->FirstChild())
+void CGUIIncludes::ResolveIncludeForNode(TiXmlElement *parent,
+                                         TiXmlElement *include,
+                                         std::map<INFO::InfoPtr, bool>* xmlIncludeConditions,
+                                         std::map<std::string, std::string> params)
+{
+  if (!include)
+    return;
+
+  if (!LoadIncludesIfFile(include, xmlIncludeConditions))
+    return;
+
+  CStdString tagName = include->FirstChild()->Value();
+  map<CStdString, TiXmlElement>::const_iterator it = m_includes.find(tagName);
+  if (it != m_includes.end())
+  { // found the tag(s) to include - let's replace it
+    const TiXmlElement &element = (*it).second;
+    const TiXmlElement *tag = element.FirstChildElement();
+
+    GetParametersFromIncludeCallAndDefinition(include, &element, params);
+
+    while (tag)
+    {
+      // we insert before the <include> element to keep the correct
+      // order (we render in the order given in the xml file)
+      TiXmlElement *insertedTag = static_cast<TiXmlElement*>(parent->InsertBeforeChild(include, *tag));
+      // after insertion we resolve parameters even if parameter list is empty (to remove param references)
+      ResolveParametersForNode(insertedTag, params);
+
+      // Continue resolving current tag
+      if (insertedTag->ValueStr() == "include")
+        ResolveIncludeForNode(parent, insertedTag, xmlIncludeConditions, params);
+      else
+        ResolveIncludes(insertedTag, xmlIncludeConditions, params);
+
+      tag = tag->NextSiblingElement();
+    }
+    parent->RemoveChild(include);
+  }
+  else
   {
-    // have an include tag - grab it's tag name and replace it with the real tag contents
-    const char *file = include->Attribute("file");
-    if (file)
-    { // we need to load this include from the alternative file
-      LoadIncludes(g_SkinInfo->GetSkinPath(file));
-    }
-    const char *condition = include->Attribute("condition");
-    if (condition)
-    { // check this condition
-      INFO::InfoPtr conditionID = g_infoManager.Register(condition);
-      bool value = conditionID->Get();
+    CLog::Log(LOGWARNING, "Skin has invalid include: %s", tagName.c_str());
+  }
+}
 
-      if (xmlIncludeConditions)
-        (*xmlIncludeConditions)[conditionID] = value;
+bool CGUIIncludes::LoadIncludesIfFile(TiXmlElement *include,
+                                      std::map<INFO::InfoPtr, bool>* xmlIncludeConditions)
+{
+  if (!include)
+    return false;
 
-      if (!value)
-      {
-        include = include->NextSiblingElement("include");
-        continue;
-      }
-    }
-    CStdString tagName = include->FirstChild()->Value();
-    map<CStdString, TiXmlElement>::const_iterator it = m_includes.find(tagName);
-    if (it != m_includes.end())
-    { // found the tag(s) to include - let's replace it
-      const TiXmlElement &element = (*it).second;
-      const TiXmlElement *tag = element.FirstChildElement();
-      // combine passed include parameters with their default values into a single list
-      map<string, string> params = GetParameters(include, &element);
-      while (tag)
-      {
-        // we insert before the <include> element to keep the correct
-        // order (we render in the order given in the xml file)
-        TiXmlElement *insertedTag = static_cast<TiXmlElement*>(node->InsertBeforeChild(include, *tag));
-        // after insertion we resolve parameters even if parameter list is empty (to remove param references)
-        ResolveParametersForNode(insertedTag, params);
-        tag = tag->NextSiblingElement();
-      }
-      // remove the <include>tagName</include> element
-      node->RemoveChild(include);
-      include = node->FirstChildElement("include");
-    }
-    else
-    { // invalid include
-      CLog::Log(LOGWARNING, "Skin has invalid include: %s", tagName.c_str());
-      include = include->NextSiblingElement("include");
-    }
+  // have an include tag - grab it's tag name and replace it with the real tag contents
+  const char *file = include->Attribute("file");
+  if (file)
+  { // we need to load this include from the alternative file
+    LoadIncludes(g_SkinInfo->GetSkinPath(file));
+  }
+  const char *condition = include->Attribute("condition");
+  if (condition)
+  { // check this condition
+    INFO::InfoPtr conditionID = g_infoManager.Register(condition);
+    bool value = conditionID->Get();
+
+    if (xmlIncludeConditions)
+      (*xmlIncludeConditions)[conditionID] = value;
+
+    return value;
   }
 
+  return true;
+}
+
+void CGUIIncludes::ResolveConstantsForNode(TiXmlElement *node)
+{
   // run through this element's attributes, resolving any constants
   TiXmlAttribute *attribute = node->FirstAttribute();
   while (attribute)
@@ -300,78 +343,77 @@ void CGUIIncludes::ResolveIncludesForNode(TiXmlElement *node, std::map<INFO::Inf
     node->FirstChild()->SetValue(ResolveConstant(node->FirstChild()->ValueStr()));
 }
 
-map<string, string> CGUIIncludes::GetParameters(const TiXmlElement *includeCall, const TiXmlElement *includeDef) const
+void CGUIIncludes::GetParametersFromIncludeCallAndDefinition(const TiXmlElement *includeCall,
+                                                             const TiXmlElement *includeDef,
+                                                             map<string, string> &params) const
+{
+  GetParametersForNode(includeCall, params, true);
+  GetParametersForNode(includeDef, params);
+}
+
+void CGUIIncludes::GetParametersForNode(const TiXmlElement *node,
+                                        map<string, string> &params,
+                                        bool isIncludeCall /* = False */) const
 {
   static const char paramNamespacePrefix[] = "param:";
-  map<string, string> params;
+  static const char forwardParamsAttributeName[] = "forwardparams";
   const TiXmlAttribute *attribute;
-  // add actual parameters from include call tag (these override defaults)
-  // <include file="MyControls.xml" param:posx="225" param:posy="150">MyControl1</include>
-  if (includeCall)
+  if (node)
   {
-    attribute = includeCall->FirstAttribute();
-    while (attribute)
+    if (isIncludeCall)
     {
-      if (StringUtils::StartsWith(attribute->Name(), paramNamespacePrefix))
-      {
-        string paramName(attribute->Name() + sizeof(paramNamespacePrefix) - 1);
-        params[paramName] = attribute->ValueStr();
-      }
-      attribute = attribute->Next();
+      string forwardparams = XMLUtils::GetAttribute(node, forwardParamsAttributeName);
+      if (forwardparams == "false")
+        params.clear();
     }
-  }
-  // add default parameters from include definition tag
-  // <include name="MyControl1" param:posx="100" param:posy="100" param:TextColor="white">...</include>
-  if (includeDef)
-  {
-    attribute = includeDef->FirstAttribute();
+
+    attribute = node->FirstAttribute();
     while (attribute)
     {
       if (StringUtils::StartsWith(attribute->Name(), paramNamespacePrefix))
       {
         string paramName(attribute->Name() + sizeof(paramNamespacePrefix) - 1);
-        if (params.find(paramName) == params.end())
+        if ((params.find(paramName) == params.end()) || isIncludeCall)
           params[paramName] = attribute->ValueStr();
       }
       attribute = attribute->Next();
     }
   }
-  return params;
 }
 
-void CGUIIncludes::ResolveParametersForNode(TiXmlElement *node, const map<string, string> &params) const
+void CGUIIncludes::ResolveParametersForNode(TiXmlElement *node, map<string, string> &params) const
 {
   if (!node)
     return;
+
   string newValue;
   // run through this element's attributes, resolving any parameters
   TiXmlAttribute *attribute = node->FirstAttribute();
+  std::vector<string> attributesToRemove;
   while (attribute)
   {
-    RESOLVE_PARAMS_RESULT result = ResolveParameters(attribute->ValueStr(), newValue, params);
-    if (result == SINGLE_UNDEFINED_PARAM_RESOLVED && strcmp(node->Value(), "include") == 0)
+    if (ResolveParameters(attribute->ValueStr(), newValue, params))
     {
-      // special case: passing param:name="$PARAM[undefinedParam]" to the nested include
-      // this usually happens when trying to forward a missing parameter from the enclosing include to the nested include
-      // problem: since 'undefinedParam' is not defined, it expands to param:name="" and overrides any default value set for param:name in the nested include
-      // to prevent this, we'll completely remove this parameter from the nested include call so that the default value can be correctly picked up later
-      const char *name = attribute->Name();
-      attribute = attribute->Next();
-      node->RemoveAttribute(name);
-    }
-    else
-    {
-      if (result != NO_PARAMS_FOUND)
+      // If newValue is empty after replacing, add
+      // attribute to vector so we can remove it later
+      if (newValue.empty())
+        attributesToRemove.push_back(attribute->Name());
+      else
         attribute->SetValue(newValue);
-      attribute = attribute->Next();
     }
+    attribute = attribute->Next();
   }
+
+  //Remove all attributes to remove
+  for (vector<string>::const_iterator i = attributesToRemove.begin(); i != attributesToRemove.end(); ++i)
+    node->RemoveAttribute(*i);
+
   // run through this element's value and children, resolving any parameters
   if (TiXmlNode *child = node->FirstChild())
   {
     if (child->Type() == TiXmlNode::TINYXML_TEXT)
     {
-      if (ResolveParameters(child->ValueStr(), newValue, params) != NO_PARAMS_FOUND)
+      if (ResolveParameters(child->ValueStr(), newValue, params))
         child->SetValue(newValue);
     }
     else if (child->Type() == TiXmlNode::TINYXML_ELEMENT)
@@ -389,36 +431,18 @@ void CGUIIncludes::ResolveParametersForNode(TiXmlElement *node, const map<string
 class ParamReplacer
 {
   const map<string, string> &m_params;
-  // keep some stats so that we know exactly what's been resolved
-  int m_numTotalParams;
-  int m_numUndefinedParams;
 public:
-  ParamReplacer(const map<string, string> &params) : m_params(params), m_numTotalParams(0), m_numUndefinedParams(0) {}
-  int getNumTotalParams() const { return m_numTotalParams; }
-  int getNumDefinedParams() const { return m_numTotalParams - m_numUndefinedParams; }
-  int getNumUndefinedParams() const { return m_numUndefinedParams; }
-  string operator()(const string &paramName)
+  ParamReplacer(const map<string, string> &params) : m_params(params) {}
+  string operator()(const string &paramName) const
   {
-    m_numTotalParams++;
     map<string, string>::const_iterator it = m_params.find(paramName);
-    if (it != m_params.end())
-      return it->second;
-    else
-    {
-      m_numUndefinedParams++;
-      return StringUtils::Empty;
-    }
+    return it != m_params.end() ? it->second : StringUtils::Empty;
   }
 };
 
-CGUIIncludes::RESOLVE_PARAMS_RESULT CGUIIncludes::ResolveParameters(const string &strInput, string &strOutput, const map<string, string> &params) const
+bool CGUIIncludes::ResolveParameters(const string &strInput, string &strOutput, const map<string, string> &params) const
 {
-  ParamReplacer paramReplacer(params);
-  if (CGUIInfoLabel::ReplaceDollarString(strInput, strOutput, "PARAM", boost::ref(paramReplacer)))
-    // detect special input values of the form "$PARAM[undefinedParam]" (with no extra characters around)
-    return paramReplacer.getNumUndefinedParams() == 1 && paramReplacer.getNumTotalParams() == 1 && strOutput.empty() ? SINGLE_UNDEFINED_PARAM_RESOLVED : PARAMS_RESOLVED;
-  else
-    return NO_PARAMS_FOUND;
+  return CGUIInfoLabel::ReplaceDollarString(strInput, strOutput, "PARAM", ParamReplacer(params));
 }
 
 CStdString CGUIIncludes::ResolveConstant(const CStdString &constant) const

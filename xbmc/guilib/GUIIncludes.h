@@ -49,14 +49,18 @@ public:
    \param node an XML Element - all child elements are traversed.
    */
   void ResolveIncludes(TiXmlElement *node, std::map<INFO::InfoPtr, bool>* xmlIncludeConditions = NULL);
+  void ResolveIncludes(TiXmlElement *node, std::map<INFO::InfoPtr, bool>* xmlIncludeConditions, std::map<std::string, std::string> params);
   const INFO::CSkinVariableString* CreateSkinVariable(const CStdString& name, int context);
 
 private:
-  void ResolveIncludesForNode(TiXmlElement *node, std::map<INFO::InfoPtr, bool>* xmlIncludeConditions = NULL);
-  std::map<std::string, std::string> GetParameters(const TiXmlElement *includeCall, const TiXmlElement *includeDef) const;
-  void ResolveParametersForNode(TiXmlElement *node, const std::map<std::string, std::string> &params) const;
-  enum RESOLVE_PARAMS_RESULT { NO_PARAMS_FOUND, PARAMS_RESOLVED, SINGLE_UNDEFINED_PARAM_RESOLVED };
-  RESOLVE_PARAMS_RESULT ResolveParameters(const std::string &strInput, std::string &strOutput, const std::map<std::string, std::string> &params) const;
+  void ResolveIncludeForNode(TiXmlElement *parent, TiXmlElement *include, std::map<INFO::InfoPtr, bool>* xmlIncludeConditions, std::map<std::string, std::string> params);
+  bool LoadIncludesIfFile(TiXmlElement *include, std::map<INFO::InfoPtr, bool>* xmlIncludeConditions);
+  void ResolveDefaultsForNode(TiXmlElement *node);
+  void ResolveConstantsForNode(TiXmlElement *node);
+  void GetParametersFromIncludeCallAndDefinition(const TiXmlElement *includeCall, const TiXmlElement *includeDef, std::map<std::string, std::string> &params) const;
+  void GetParametersForNode(const TiXmlElement *node, std::map<std::string, std::string> &params, bool isIncludeCall = false) const;
+  void ResolveParametersForNode(TiXmlElement *node, std::map<std::string, std::string> &params) const;
+  bool ResolveParameters(const std::string &strInput, std::string &strOutput, const std::map<std::string, std::string> &params) const;
   CStdString ResolveConstant(const CStdString &constant) const;
   bool HasIncludeFile(const CStdString &includeFile) const;
   std::map<CStdString, TiXmlElement> m_includes;

@@ -69,8 +69,13 @@ private:
   std::map<CStdString, CStdString> m_constants;
   std::vector<CStdString> m_files;
   typedef std::vector<CStdString>::const_iterator iFiles;
+  bool GetActualParamName(const char *name, std::string &paramName) const;
 
   std::set<std::string> m_constantAttributes;
   std::set<std::string> m_constantNodes;
+
+  static const char paramNamespacePrefix[];
+  static const char forwardParamsAttributeName[];
+  static const std::string eraseParamsValue;
 };
 

@@ -30,6 +30,10 @@
 
 using namespace std;
 
+const char CGUIIncludes::paramNamespacePrefix[] = "param:";
+const char CGUIIncludes::forwardParamsAttributeName[] = "forwardparams";
+const string CGUIIncludes::eraseParamsValue = "$ERASE";
+
 CGUIIncludes::CGUIIncludes()
 {
   m_constantAttributes.insert("x");
@@ -355,8 +359,6 @@ void CGUIIncludes::GetParametersForNode(const TiXmlElement *node,
                                         map<string, string> &params,
                                         bool isIncludeCall /* = False */) const
 {
-  static const char paramNamespacePrefix[] = "param:";
-  static const char forwardParamsAttributeName[] = "forwardparams";
   const TiXmlAttribute *attribute;
   if (node)
   {
@@ -370,15 +372,28 @@ void CGUIIncludes::GetParametersForNode(const TiXmlElement *node,
     attribute = node->FirstAttribute();
     while (attribute)
     {
-      if (StringUtils::StartsWith(attribute->Name(), paramNamespacePrefix))
+      string paramName;
+      if (GetActualParamName(attribute->Name(), paramName))
       {
-        string paramName(attribute->Name() + sizeof(paramNamespacePrefix) - 1);
-        if ((params.find(paramName) == params.end()) || isIncludeCall)
+        if (attribute->ValueStr() == eraseParamsValue)
+          params.erase(paramName);
+        else if ((params.find(paramName) == params.end()) || isIncludeCall)
           params[paramName] = attribute->ValueStr();
       }
       attribute = attribute->Next();
     }
   }
+}
+
+bool CGUIIncludes::GetActualParamName(const char *name, string &paramName) const
+{
+  if (StringUtils::StartsWith(name, paramNamespacePrefix))
+  {
+    string nameWithoutPrefix(name + sizeof(paramNamespacePrefix) - 1);
+    paramName = nameWithoutPrefix;
+    return true;
+  }
+  return false;
 }
 
 void CGUIIncludes::ResolveParametersForNode(TiXmlElement *node, map<string, string> &params) const
@@ -390,6 +405,7 @@ void CGUIIncludes::ResolveParametersForNode(TiXmlElement *node, map<string, stri
   // run through this element's attributes, resolving any parameters
   TiXmlAttribute *attribute = node->FirstAttribute();
   std::vector<string> attributesToRemove;
+  string paramName;
   while (attribute)
   {
     if (ResolveParameters(attribute->ValueStr(), newValue, params))
@@ -397,16 +413,23 @@ void CGUIIncludes::ResolveParametersForNode(TiXmlElement *node, map<string, stri
       // If newValue is empty after replacing, add
       // attribute to vector so we can remove it later
       if (newValue.empty())
-        attributesToRemove.push_back(attribute->Name());
+      {
+        if (GetActualParamName(attribute->Name(), paramName))
+          attribute->SetValue(eraseParamsValue);
+        else
+          attributesToRemove.push_back(attribute->Name());
+      }
       else
         attribute->SetValue(newValue);
     }
     attribute = attribute->Next();
   }
 
-  //Remove all attributes to remove
+  // Remove non params attributes
   for (vector<string>::const_iterator i = attributesToRemove.begin(); i != attributesToRemove.end(); ++i)
+  {
     node->RemoveAttribute(*i);
+  }
 
   // run through this element's value and children, resolving any parameters
   if (TiXmlNode *child = node->FirstChild())

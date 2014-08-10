@@ -30,7 +30,7 @@
 
 using namespace std;
 
-const char CGUIIncludes::paramNamespacePrefix[] = "param:";
+const char CGUIIncludes::paramNamespacePrefix[] = "p:";
 const char CGUIIncludes::forwardParamsAttributeName[] = "forwardparams";
 const string CGUIIncludes::eraseParamsValue = "$ERASE";
 

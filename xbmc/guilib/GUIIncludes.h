@@ -49,7 +49,7 @@ public:
    \param node an XML Element - all child elements are traversed.
    */
   void ResolveIncludes(TiXmlElement *node, std::map<INFO::InfoPtr, bool>* xmlIncludeConditions = NULL);
-  void ResolveIncludes(TiXmlElement *node, std::map<INFO::InfoPtr, bool>* xmlIncludeConditions, std::map<std::string, std::string> params);
+  void ResolveIncludes(TiXmlElement *node, std::map<INFO::InfoPtr, bool>* xmlIncludeConditions, std::map<std::string, std::string> &params);
   const INFO::CSkinVariableString* CreateSkinVariable(const CStdString& name, int context);
 
 private:

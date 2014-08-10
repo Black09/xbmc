@@ -208,7 +208,7 @@ void CGUIIncludes::ResolveIncludes(TiXmlElement *node,
 
 void CGUIIncludes::ResolveIncludes(TiXmlElement *node,
                                    std::map<INFO::InfoPtr, bool>* xmlIncludeConditions,
-                                   std::map<std::string, std::string> params)
+                                   std::map<std::string, std::string> &params)
 {
   if (!node)
     return;

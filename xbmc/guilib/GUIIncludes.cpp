@@ -377,7 +377,7 @@ void CGUIIncludes::GetParametersForNode(const TiXmlElement *node,
       {
         if (attribute->ValueStr() == eraseParamsValue)
           params.erase(paramName);
-        else if ((params.find(paramName) == params.end()) || isIncludeCall)
+        else if (isIncludeCall || (params.find(paramName) == params.end()))
           params[paramName] = attribute->ValueStr();
       }
       attribute = attribute->Next();
@@ -408,27 +408,24 @@ void CGUIIncludes::ResolveParametersForNode(TiXmlElement *node, map<string, stri
   string paramName;
   while (attribute)
   {
-    if (ResolveParameters(attribute->ValueStr(), newValue, params))
+    RESOLVE_PARAMS_RESULT result = ResolveParameters(attribute->ValueStr(), newValue, params);
+    if (result == ALL_PARAMS_UNDEFINED)
     {
-      // If newValue is empty after replacing, add
-      // attribute to vector so we can remove it later
-      if (newValue.empty())
-      {
-        if (GetActualParamName(attribute->Name(), paramName))
-          attribute->SetValue(eraseParamsValue);
-        else
-          attributesToRemove.push_back(attribute->Name());
-      }
+      if (GetActualParamName(attribute->Name(), paramName))
+        attribute->SetValue(eraseParamsValue);
       else
-        attribute->SetValue(newValue);
+      {
+        const char *name = attribute->Name();
+        attribute = attribute->Next();
+        node->RemoveAttribute(name);
+      }
     }
-    attribute = attribute->Next();
-  }
-
-  // Remove non params attributes
-  for (vector<string>::const_iterator i = attributesToRemove.begin(); i != attributesToRemove.end(); ++i)
-  {
-    node->RemoveAttribute(*i);
+    else
+    {
+      if (result != NO_PARAMS_FOUND)
+        attribute->SetValue(newValue);
+      attribute = attribute->Next();
+    }
   }
 
   // run through this element's value and children, resolving any parameters
@@ -436,7 +433,7 @@ void CGUIIncludes::ResolveParametersForNode(TiXmlElement *node, map<string, stri
   {
     if (child->Type() == TiXmlNode::TINYXML_TEXT)
     {
-      if (ResolveParameters(child->ValueStr(), newValue, params))
+      if (ResolveParameters(child->ValueStr(), newValue, params) != NO_PARAMS_FOUND)
         child->SetValue(newValue);
     }
     else if (child->Type() == TiXmlNode::TINYXML_ELEMENT)
@@ -454,18 +451,30 @@ void CGUIIncludes::ResolveParametersForNode(TiXmlElement *node, map<string, stri
 class ParamReplacer
 {
   const map<string, string> &m_params;
+  bool &m_paramDefined;
 public:
-  ParamReplacer(const map<string, string> &params) : m_params(params) {}
-  string operator()(const string &paramName) const
+  ParamReplacer(const map<string, string> &params, bool &paramDefined) : m_params(params), m_paramDefined(paramDefined) {}
+  string operator()(const string &paramName)
   {
     map<string, string>::const_iterator it = m_params.find(paramName);
-    return it != m_params.end() ? it->second : StringUtils::Empty;
+    if (it != m_params.end())
+    {
+      m_paramDefined = true;
+      return it->second;
+    }
+    return StringUtils::Empty;
   }
 };
 
-bool CGUIIncludes::ResolveParameters(const string &strInput, string &strOutput, const map<string, string> &params) const
+CGUIIncludes::RESOLVE_PARAMS_RESULT CGUIIncludes::ResolveParameters(const string &strInput, string &strOutput, const map<string, string> &params) const
 {
-  return CGUIInfoLabel::ReplaceDollarString(strInput, strOutput, "PARAM", ParamReplacer(params));
+  bool isParamDefined = false;
+  ParamReplacer paramsReplacer(params, isParamDefined);
+  if (CGUIInfoLabel::ReplaceDollarString(strInput, strOutput, "PARAM", paramsReplacer))
+  {
+    return (!isParamDefined && strOutput.empty()) ? ALL_PARAMS_UNDEFINED : ONE_PARAM_DEFINED;
+  }
+  return NO_PARAMS_FOUND;
 }
 
 CStdString CGUIIncludes::ResolveConstant(const CStdString &constant) const

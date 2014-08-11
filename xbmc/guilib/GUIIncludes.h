@@ -60,7 +60,8 @@ private:
   void GetParametersFromIncludeCallAndDefinition(const TiXmlElement *includeCall, const TiXmlElement *includeDef, std::map<std::string, std::string> &params) const;
   void GetParametersForNode(const TiXmlElement *node, std::map<std::string, std::string> &params, bool isIncludeCall = false) const;
   void ResolveParametersForNode(TiXmlElement *node, std::map<std::string, std::string> &params) const;
-  bool ResolveParameters(const std::string &strInput, std::string &strOutput, const std::map<std::string, std::string> &params) const;
+  enum RESOLVE_PARAMS_RESULT { NO_PARAMS_FOUND, ONE_PARAM_DEFINED, ALL_PARAMS_UNDEFINED };
+  RESOLVE_PARAMS_RESULT ResolveParameters(const std::string &strInput, std::string &strOutput, const std::map<std::string, std::string> &params) const;
   CStdString ResolveConstant(const CStdString &constant) const;
   bool HasIncludeFile(const CStdString &includeFile) const;
   std::map<CStdString, TiXmlElement> m_includes;
